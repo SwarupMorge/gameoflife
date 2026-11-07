@@ -7,11 +7,13 @@ It supports random initial states and a few built-in patterns.
 from __future__ import annotations
 
 import argparse
-import os
 import random
-import sys
-import time
-from typing import Iterable, List, Sequence, Tuple
+import tkinter as tk
+from typing import Iterable, List, Tuple
+
+GRID_ROWS = 100
+GRID_COLS = 100
+CELL_SIZE = 8
 
 Cell = int
 Grid = List[List[Cell]]
@@ -29,6 +31,10 @@ class GameOfLife:
 
     def seed(self, pattern: str) -> None:
         """Populate the board with a built-in pattern or a random configuration."""
+        if pattern == "empty":
+            self._clear()
+            return
+
         if pattern == "random":
             self._randomize()
             return
@@ -122,16 +128,12 @@ class GameOfLife:
         return self.render()
 
 
-def clear_screen() -> None:
-    os.system("cls" if os.name == "nt" else "clear")
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Conway's Game of Life")
-    parser.add_argument("--rows", type=int, default=20, help="Number of rows in the grid")
-    parser.add_argument("--cols", type=int, default=40, help="Number of columns in the grid")
-    parser.add_argument("--pattern", type=str, default="random", choices=[
-        "random", "glider", "blinker", "toad", "exploder", "pulsar"
+    parser.add_argument("--rows", type=int, default=GRID_ROWS, help="Number of rows in the grid")
+    parser.add_argument("--cols", type=int, default=GRID_COLS, help="Number of columns in the grid")
+    parser.add_argument("--pattern", type=str, default="empty", choices=[
+        "empty", "random", "glider", "blinker", "toad", "exploder", "pulsar"
     ], help="Initial pattern")
     parser.add_argument("--density", type=float, default=0.25, help="Chance for a cell to be alive in random mode")
     parser.add_argument("--delay", type=float, default=0.15, help="Delay in seconds between generations")
@@ -141,16 +143,90 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     game = GameOfLife(args.rows, args.cols, pattern=args.pattern, density=args.density)
+    initial_grid = [row[:] for row in game.grid]
+    root = tk.Tk()
+    root.title("Conway's Game of Life")
+    canvas = tk.Canvas(
+        root,
+        width=args.cols * CELL_SIZE,
+        height=args.rows * CELL_SIZE,
+        background="white",
+        highlightthickness=0,
+    )
+    canvas.pack()
 
-    try:
-        while True:
-            clear_screen()
-            print(game)
-            time.sleep(args.delay)
-            game.step()
-    except KeyboardInterrupt:
-        print("\nStopped.")
-        sys.exit(0)
+    cell_items = [
+        [
+            canvas.create_rectangle(
+                col * CELL_SIZE,
+                row * CELL_SIZE,
+                (col + 1) * CELL_SIZE,
+                (row + 1) * CELL_SIZE,
+                fill="white" if game.grid[row][col] else "black",
+                outline="#dddddd",
+            )
+            for col in range(args.cols)
+        ]
+        for row in range(args.rows)
+    ]
+
+    timer_id = None
+
+    def update() -> None:
+        nonlocal timer_id
+        timer_id = None
+        game.step()
+        for row in range(args.rows):
+            for col in range(args.cols):
+                canvas.itemconfigure(
+                    cell_items[row][col],
+                    fill="white" if game.grid[row][col] else "black",
+                )
+        timer_id = root.after(max(1, int(args.delay * 1000)), update)
+
+    started = False
+
+    def toggle_cell(event: tk.Event) -> None:
+        if started:
+            return
+        col = event.x // CELL_SIZE
+        row = event.y // CELL_SIZE
+        if 0 <= row < args.rows and 0 <= col < args.cols:
+            game.grid[row][col] = 1 - game.grid[row][col]
+            canvas.itemconfigure(
+                cell_items[row][col],
+                fill="white" if game.grid[row][col] else "black",
+            )
+
+    canvas.bind("<Button-1>", toggle_cell)
+
+    def start_game() -> None:
+        nonlocal started
+        if not started:
+            started = True
+            start_button.configure(state=tk.DISABLED)
+            timer_id = root.after(max(1, int(args.delay * 1000)), update)
+
+    def reset_game() -> None:
+        nonlocal started, timer_id
+        if timer_id is not None:
+            root.after_cancel(timer_id)
+            timer_id = None
+        started = False
+        game.grid = [row[:] for row in initial_grid]
+        start_button.configure(state=tk.NORMAL)
+        for row in range(args.rows):
+            for col in range(args.cols):
+                canvas.itemconfigure(
+                    cell_items[row][col],
+                    fill="white" if game.grid[row][col] else "black",
+                )
+
+    start_button = tk.Button(root, text="Start", command=start_game)
+    start_button.pack()
+    reset_button = tk.Button(root, text="Reset", command=reset_game)
+    reset_button.pack()
+    root.mainloop()
 
 
 if __name__ == "__main__":
